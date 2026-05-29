@@ -1,0 +1,15 @@
+# Compiled Binary Executables
+*.exe
+dpi_engine
+
+# VS Code Metadata
+.vscode/
+
+# Local Python Caches
+__pycache__/
+*.pyc
+
+# Local Captures & Dump PCAPs
+*.pcap
+temp_uploaded.pcap
+temp_output.pcap

@@ -9,6 +9,7 @@ app = Flask(__name__)
 CORS(app)  # Enables cross-origin requests for your Vercel frontend
 
 # --- PLATFORM CONFIGURATIONS ---
+# Render targets Linux, local environments might use Windows
 IS_LINUX = platform.system() == "Linux"
 COMPILER = "g++" if IS_LINUX else "g++.exe"
 BINARY_NAME = "./dpi_engine" if IS_LINUX else "dpi_engine.exe"
@@ -83,10 +84,19 @@ def analyze_pcap():
                 os.remove(temp_pcap_path)
             return jsonify({"error": "C++ Subprocess execution error: Compilation failed on cloud server"}), 500
 
+    # --- LINUX EXECUTE PERMISSION FIX ---
+    # Giving read/write/execute permissions (0o755) so Linux doesn't block execution
+    if IS_LINUX and os.path.exists(BINARY_NAME):
+        print("[Python Backend] Granting execution permissions to C++ binary...")
+        try:
+            os.chmod(BINARY_NAME, 0o755)
+        except Exception as perm_err:
+            print(f"[Python Backend] Warning: Failed to set chmod permissions: {str(perm_err)}")
+
     try:
         print(f"[Python Backend] Passing packet streams through {BINARY_NAME} core wrapper...")
         
-        # Execute the compiled binary
+        # Execute the compiled binary, passing the path of the saved PCAP as an argument
         engine_process = subprocess.run(
             [BINARY_NAME, temp_pcap_path],
             stdout=subprocess.PIPE,
@@ -94,6 +104,7 @@ def analyze_pcap():
             text=True
         )
 
+        # Cleanup the temporary uploaded file from server block memory
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
 
@@ -101,6 +112,7 @@ def analyze_pcap():
             print(f"[Core Engine Error Log]: {engine_process.stderr}")
             return jsonify({"error": f"Binary engine execution failed: {engine_process.stderr}"}), 500
 
+        # Raw console intercept strings parsing into standard structural JSON nodes
         raw_output_payload = engine_process.stdout
         structured_telemetry = json.loads(raw_output_payload)
         
@@ -110,19 +122,16 @@ def analyze_pcap():
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
         return jsonify({"error": f"Internal orchestration fault: {str(e)}"}), 500
-# --- RUN ORCHESTRATION ---
+
 # --- RUN ORCHESTRATION ---
 if __name__ == '__main__':
-    # Binding port to environment configurations for dynamic production handling
+    # Binding port dynamically for Render proxy handling
     port = int(os.environ.get("PORT", 5000))
     
     print(f"[Python Backend] Instantly launching Flask on port {port} to pass Render port check...")
-    # 0.0.0.0 par bind pehle chalega taaki Render proxy pass ho jaye
+    # 0.0.0.0 allows internal routing through cloud firewalls
     app.run(host='0.0.0.0', port=port, debug=False)
 
 # ====================================================================
-# FORCE BYPASS FOR PORT SCANNING PROXIES V3
-# ====================================================================
-# ====================================================================
-# TRIGGERING RE-BUILD PROTOCOL V2 FOR RENDER PORT SCANNING PROXIES
+# TRIGGERING RE-BUILD PROTOCOL V4 WITH LINUX BINARY CHMOD PERMISSIONS
 # ====================================================================

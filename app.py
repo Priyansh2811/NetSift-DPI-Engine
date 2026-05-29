@@ -10,45 +10,19 @@ CORS(app)
 
 # --- PLATFORM CONFIGURATIONS ---
 IS_LINUX = platform.system() == "Linux"
-COMPILER = "g++" if IS_LINUX else "g++.exe"
-
-# Safe memory buffer space for Linux/Windows structures
-BASE_DIR = "/tmp" if IS_LINUX else os.getcwd()
-BINARY_NAME = os.path.join(BASE_DIR, "dpi_engine" if IS_LINUX else "dpi_engine.exe")
-
-CPP_SOURCES = [
-    "src/dpi_mt.cpp",
-    "src/packet_parser.cpp",
-    "src/pcap_reader.cpp",
-    "src/sni_extractor.cpp",
-    "src/types.cpp"
-]
-
-def compile_core_engine():
-    """Compiles the C++ engine sequentially into the designated target directory"""
-    print("[Python Backend] Running sequential compilation flags...")
-    if not os.path.exists("src"):
-        return False, "'src' folder framework missing"
-
-    compile_cmd = [COMPILER, "-std=c++17", "-pthread"] + CPP_SOURCES + ["-o", BINARY_NAME]
-    
-    try:
-        result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=45)
-        if result.returncode == 0:
-            return True, None
-        return False, f"Compiler mismatch logs:\n{result.stderr}"
-    except Exception as e:
-        return False, str(e)
-
-# --- API GATEWAY ENDPOINTS ---
+# Render par binary seedhe root directory mein milegi jo humne build step mein banayi hai
+BINARY_NAME = "./dpi_engine" if IS_LINUX else "dpi_engine.exe"
 
 @app.route('/', methods=['GET'])
 def health_check():
-    return jsonify({"status": "online", "platform": platform.system()}), 200
+    return jsonify({
+        "status": "online",
+        "binary_found": os.path.exists(BINARY_NAME),
+        "platform": platform.system()
+    }), 200
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_pcap():
-    # Safe validation wrapper to prevent unhandled routing crashes
     if 'file' not in request.files:
         return jsonify({"error": "No file stream intercepted"}), 400
         
@@ -56,55 +30,54 @@ def analyze_pcap():
     if uploaded_file.filename == '':
         return jsonify({"error": "Null filename allocation"}), 400
 
-    temp_pcap_path = os.path.join(BASE_DIR, "runtime_target.pcap")
+    # Save incoming PCAP in current working directory
+    temp_pcap_path = os.path.join(os.getcwd(), "runtime_target.pcap")
     try:
         uploaded_file.save(temp_pcap_path)
     except Exception as save_err:
         return jsonify({"error": f"Storage system mapping error: {str(save_err)}"}), 500
 
-    # Dynamic fallback check for binary maps
+    # Verify if the pre-compiled binary exists
     if not os.path.exists(BINARY_NAME):
-        success, compilation_error = compile_core_engine()
-        if not success:
-            if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
-            return jsonify({"error": "C++ Backend Engine Compilation Fault", "details": compilation_error}), 500
-
-    if IS_LINUX and os.path.exists(BINARY_NAME):
-        os.chmod(BINARY_NAME, 0o755)
+        if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
+        return jsonify({
+            "error": "C++ Core Engine Binary Missing",
+            "details": "The binary was not generated during Render's build step. Check build logs."
+        }), 500
 
     try:
-        print("[Python Backend] Initiating C++ subprocess intercept...")
+        print("[Python Backend] Executing pre-compiled C++ subprocess core...")
         engine_process = subprocess.run(
             [BINARY_NAME, temp_pcap_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=30 # Prevent long thread freeze loops
+            timeout=30
         )
 
+        # Cleanup the file immediately
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
 
         if engine_process.returncode != 0:
-            # Captures standard out errors instead of killing server pipeline
             return jsonify({
-                "error": "C++ Engine runtime failure or structural parsing mismatch",
-                "details": engine_process.stderr or "Check if your C++ main loop output prints valid structural JSON strings."
+                "error": "C++ Engine runtime failure",
+                "details": engine_process.stderr or "Check code architecture mismatch."
             }), 500
 
-        # Safe parsing wrap to ensure no malformed outputs breaks Flask
+        # Parse and return JSON
         try:
             structured_telemetry = json.loads(engine_process.stdout)
             return jsonify(structured_telemetry), 200
         except Exception as json_err:
             return jsonify({
-                "error": "C++ Engine output structure is not a valid JSON schema matrix",
+                "error": "Malformed JSON output from C++ engine",
                 "raw_output": engine_process.stdout
             }), 500
 
     except subprocess.TimeoutExpired:
         if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
-        return jsonify({"error": "Execution routine timeout. Package processing took too long"}), 504
+        return jsonify({"error": "Execution routine timeout"}), 504
     except Exception as e:
         if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
         return jsonify({"error": f"Internal microservice fault: {str(e)}"}), 500

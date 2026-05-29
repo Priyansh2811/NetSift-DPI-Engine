@@ -6,13 +6,15 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enables cross-origin requests for your Vercel frontend
+CORS(app)
 
 # --- PLATFORM CONFIGURATIONS ---
-# Render targets Linux, local environments might use Windows
 IS_LINUX = platform.system() == "Linux"
 COMPILER = "g++" if IS_LINUX else "g++.exe"
-BINARY_NAME = "./dpi_engine" if IS_LINUX else "dpi_engine.exe"
+
+# Safe temporary storage environment paths for Linux/Windows
+BASE_DIR = "/tmp" if IS_LINUX else os.getcwd()
+BINARY_NAME = os.path.join(BASE_DIR, "dpi_engine" if IS_LINUX else "dpi_engine.exe")
 
 # --- CORE FILES MAPPING ---
 CPP_SOURCES = [
@@ -22,35 +24,32 @@ CPP_SOURCES = [
     "src/sni_extractor.cpp",
     "src/types.cpp"
 ]
-OUTPUT_FLAG = ["-o", "dpi_engine" if IS_LINUX else "dpi_engine.exe"]
 
 def compile_core_engine():
-    """Compiles the C++ engine sequentially on startup depending on runtime OS"""
-    print(f"[Python Backend] Detected Platform: {platform.system()}")
-    print("[Python Backend] Initializing verification and compilation of C++ Core Engine...")
+    """Compiles the C++ engine sequentially into the designated target directory"""
+    print(f"[Python Backend] Initializing verification and compilation of C++ Core Engine...")
     
-    # Check if source directory exists
     if not os.path.exists("src"):
         print("[Python Backend] Error: 'src' directory not found!")
-        return False
+        return False, "'src' directory missing from repository context"
 
-    # Compilation Command Framework
-    compile_cmd = [COMPILER, "-std=c++17", "-pthread"] + CPP_SOURCES + OUTPUT_FLAG
+    # Command compilation setup
+    compile_cmd = [COMPILER, "-std=c++17", "-pthread"] + CPP_SOURCES + ["-o", BINARY_NAME]
     
     try:
         print(f"[Python Backend] Executing build command: {' '.join(compile_cmd)}")
         result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         
         if result.returncode == 0:
-            print("[Python Backend] Verification complete! C++ Core Engine compiled successfully.")
-            return True
+            print(f"[Python Backend] Verification complete! C++ Engine compiled at {BINARY_NAME}")
+            return True, None
         else:
-            print(f"[Python Backend] Compilation Failed!\nLog Output:\n{result.stderr}")
-            return False
+            error_log = f"Stdout: {result.stdout}\nStderr: {result.stderr}"
+            print(f"[Python Backend] Compilation Failed!\nLog Output:\n{error_log}")
+            return False, error_log
             
     except Exception as e:
-        print(f"[Python Backend] Internal compiler process execution fault: {str(e)}")
-        return False
+        return False, str(e)
 
 # --- API GATEWAY ENDPOINTS ---
 
@@ -58,13 +57,12 @@ def compile_core_engine():
 def health_check():
     return jsonify({
         "status": "online",
-        "engine_architecture": "C++17 Multi-Threaded Data Pipeline",
-        "platform_detected": platform.system()
+        "platform_detected": platform.system(),
+        "binary_target_path": BINARY_NAME
     }), 200
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_pcap():
-    """Handles PCAP uploads, passes them to compiled binary, and returns JSON telemetry"""
     if 'file' not in request.files:
         return jsonify({"error": "No file stream intercepted in payload metadata"}), 400
         
@@ -72,31 +70,28 @@ def analyze_pcap():
     if uploaded_file.filename == '':
         return jsonify({"error": "Null filename allocation detected"}), 400
 
-    # Temporary storage mapping for the incoming stream
-    temp_pcap_path = os.path.join(os.getcwd(), "runtime_target.pcap")
+    # Storing inside isolated absolute safe runtime directories
+    temp_pcap_path = os.path.join(BASE_DIR, "runtime_target.pcap")
     uploaded_file.save(temp_pcap_path)
 
-    # If binary is missing, force compile it right now!
+    # Dynamic run-time compiler invocation check
     if not os.path.exists(BINARY_NAME):
-        print("[Python Backend] Binary missing. Running dynamic runtime compilation...")
-        if not compile_core_engine():
+        success, compilation_error = compile_core_engine()
+        if not success:
             if os.path.exists(temp_pcap_path):
                 os.remove(temp_pcap_path)
-            return jsonify({"error": "C++ Subprocess execution error: Compilation failed on cloud server"}), 500
+            # CRITICAL: Yeh error ab direct frontend par exact pipeline compilation trace phenkegi!
+            return jsonify({
+                "error": "C++ Compilation Fault on Server Node",
+                "details": compilation_error
+            }), 500
 
-    # --- LINUX EXECUTE PERMISSION FIX ---
-    # Giving read/write/execute permissions (0o755) so Linux doesn't block execution
+    # Ensure execution access privileges on Linux instance
     if IS_LINUX and os.path.exists(BINARY_NAME):
-        print("[Python Backend] Granting execution permissions to C++ binary...")
-        try:
-            os.chmod(BINARY_NAME, 0o755)
-        except Exception as perm_err:
-            print(f"[Python Backend] Warning: Failed to set chmod permissions: {str(perm_err)}")
+        os.chmod(BINARY_NAME, 0o755)
 
     try:
-        print(f"[Python Backend] Passing packet streams through {BINARY_NAME} core wrapper...")
-        
-        # Execute the compiled binary, passing the path of the saved PCAP as an argument
+        print(f"[Python Backend] Passing packet streams through sub-process layers...")
         engine_process = subprocess.run(
             [BINARY_NAME, temp_pcap_path],
             stdout=subprocess.PIPE,
@@ -104,34 +99,22 @@ def analyze_pcap():
             text=True
         )
 
-        # Cleanup the temporary uploaded file from server block memory
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
 
         if engine_process.returncode != 0:
-            print(f"[Core Engine Error Log]: {engine_process.stderr}")
-            return jsonify({"error": f"Binary engine execution failed: {engine_process.stderr}"}), 500
+            return jsonify({
+                "error": "Binary executable runtime segmentation fault",
+                "details": engine_process.stderr
+            }), 500
 
-        # Raw console intercept strings parsing into standard structural JSON nodes
-        raw_output_payload = engine_process.stdout
-        structured_telemetry = json.loads(raw_output_payload)
-        
-        return jsonify(structured_telemetry), 200
+        return jsonify(json.loads(engine_process.stdout)), 200
 
     except Exception as e:
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
         return jsonify({"error": f"Internal orchestration fault: {str(e)}"}), 500
 
-# --- RUN ORCHESTRATION ---
 if __name__ == '__main__':
-    # Binding port dynamically for Render proxy handling
     port = int(os.environ.get("PORT", 5000))
-    
-    print(f"[Python Backend] Instantly launching Flask on port {port} to pass Render port check...")
-    # 0.0.0.0 allows internal routing through cloud firewalls
     app.run(host='0.0.0.0', port=port, debug=False)
-
-# ====================================================================
-# TRIGGERING RE-BUILD PROTOCOL V4 WITH LINUX BINARY CHMOD PERMISSIONS
-# ====================================================================

@@ -121,3 +121,7 @@ if __name__ == '__main__':
     
     # 0.0.0.0 is crucial so Render's internal proxy mapping can tunnel the traffic properly
     app.run(host='0.0.0.0', port=port, debug=False)
+
+# ====================================================================
+# TRIGGERING RE-BUILD PROTOCOL V2 FOR RENDER PORT SCANNING PROXIES
+# ====================================================================

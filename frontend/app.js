@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
         exportBtn.classList.add('hidden');
 
         const formData = new FormData();
+        // Backend strictly looks for 'file' parameter key metadata
         formData.append('file', file);
 
         fetch('https://netsift-dpi-engine.onrender.com/api/analyze', {
@@ -51,19 +52,27 @@ document.addEventListener('DOMContentLoaded', () => {
             body: formData
         })
         .then(res => {
-            if (!res.ok) throw new Error('C++ Subprocess execution error.');
+            if (!res.ok) {
+                // Extracts the custom error JSON object passed dynamically by the Python backend
+                return res.json().then(errData => {
+                    throw new Error(errData.details || errData.error || 'Internal C++ Processing Fault');
+                }).catch(() => {
+                    // Fallback encapsulation if response isn't formatted structured JSON
+                    throw new Error('Server infrastructure runtime execution block.');
+                });
+            }
             return res.json();
         })
         .then(data => {
             loading.classList.add('hidden');
-            cachedDomainsData = data.detectedDomains; // Save in cache
+            cachedDomainsData = data.detectedDomains || []; // Safe backup array fallback
             globalResponseBackup = data;
             exportBtn.classList.remove('hidden');    // Show Export Button
             renderDashboard(data);
         })
         .catch(err => {
             loading.classList.add('hidden');
-            alert('Error: ' + err.message);
+            alert('Analysis Error: ' + err.message);
         });
     }
 
@@ -71,20 +80,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderDashboard(data) {
         dashboardContent.classList.remove('hidden');
 
-        document.getElementById('stat-packets').innerText = data.metrics.totalPackets.toLocaleString();
-        document.getElementById('stat-bytes').innerText = formatBytes(data.metrics.totalBytes);
-        document.getElementById('stat-tcp').innerText = data.metrics.tcpPackets.toLocaleString();
-        document.getElementById('stat-udp').innerText = data.metrics.udpPackets.toLocaleString();
+        // Setup base parameters protection matrices
+        const metrics = data.metrics || { totalPackets: 0, totalBytes: 0, tcpPackets: 0, udpPackets: 0 };
+        const appBreakdown = data.appBreakdown || [];
+
+        document.getElementById('stat-packets').innerText = metrics.totalPackets.toLocaleString();
+        document.getElementById('stat-bytes').innerText = formatBytes(metrics.totalBytes);
+        document.getElementById('stat-tcp').innerText = metrics.tcpPackets.toLocaleString();
+        document.getElementById('stat-udp').innerText = metrics.udpPackets.toLocaleString();
 
         // 1. Initial Populate Table
         updateTable(cachedDomainsData);
 
         // 2. FEATURE 3: Bandwidth Timeline Line Graph (Dynamic Simulation based on package size)
-        renderTimelineChart(data.metrics.totalPackets);
+        renderTimelineChart(metrics.totalPackets);
 
         // 3. Application Distribution Doughnut Chart render karna
-        const labels = data.appBreakdown.map(a => a.name);
-        const counts = data.appBreakdown.map(a => a.count);
+        const labels = appBreakdown.map(a => a.name);
+        const counts = appBreakdown.map(a => a.count);
 
         if (appChartInstance) appChartInstance.destroy();
 
@@ -118,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tableBody = document.getElementById('domain-table-body');
         tableBody.innerHTML = '';
         
-        if (filteredData.length === 0) {
+        if (!filteredData || filteredData.length === 0) {
             tableBody.innerHTML = `<tr><td colspan="2" class="text-gray-500 text-center py-4">No matching L7 domain signatures found.</td></tr>`;
             return;
         }
@@ -196,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-   // FEATURE 4 UPGRADE: Download Excel/CSV Structured Report Engine
+    // FEATURE 4 UPGRADE: Download Excel/CSV Structured Report Engine
     exportBtn.addEventListener('click', () => {
         if (!cachedDomainsData || cachedDomainsData.length === 0) return;
 
@@ -224,6 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadAnchor.click();
         downloadAnchor.remove();
     });
+
     function formatBytes(bytes) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;

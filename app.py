@@ -112,16 +112,18 @@ def analyze_pcap():
         return jsonify({"error": f"Internal orchestration fault: {str(e)}"}), 500
 
 # --- RUN ORCHESTRATION ---
+# --- RUN ORCHESTRATION ---
 if __name__ == '__main__':
-    # Compile the engine once immediately on application bootstrap
-    compile_core_engine()
-    
     # Binding port to environment configurations for dynamic production handling
     port = int(os.environ.get("PORT", 5000))
     
-    # 0.0.0.0 is crucial so Render's internal proxy mapping can tunnel the traffic properly
+    print(f"[Python Backend] Instantly launching Flask on port {port} to pass Render port check...")
+    # 0.0.0.0 par bind pehle chalega taaki Render proxy pass ho jaye
     app.run(host='0.0.0.0', port=port, debug=False)
 
+# ====================================================================
+# FORCE BYPASS FOR PORT SCANNING PROXIES V3
+# ====================================================================
 # ====================================================================
 # TRIGGERING RE-BUILD PROTOCOL V2 FOR RENDER PORT SCANNING PROXIES
 # ====================================================================

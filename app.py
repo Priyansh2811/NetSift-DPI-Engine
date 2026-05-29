@@ -75,16 +75,18 @@ def analyze_pcap():
     temp_pcap_path = os.path.join(os.getcwd(), "runtime_target.pcap")
     uploaded_file.save(temp_pcap_path)
 
-    # Check if compiled engine binary is present
+    # If binary is missing, force compile it right now!
     if not os.path.exists(BINARY_NAME):
-        # Retry runtime compilation dynamically if target binary went missing
+        print("[Python Backend] Binary missing. Running dynamic runtime compilation...")
         if not compile_core_engine():
-            return jsonify({"error": "Subprocess execution failed: C++ Engine Binary unavailable"}), 500
+            if os.path.exists(temp_pcap_path):
+                os.remove(temp_pcap_path)
+            return jsonify({"error": "C++ Subprocess execution error: Compilation failed on cloud server"}), 500
 
     try:
         print(f"[Python Backend] Passing packet streams through {BINARY_NAME} core wrapper...")
         
-        # Execute the compiled binary, passing the path of the saved PCAP as an argument
+        # Execute the compiled binary
         engine_process = subprocess.run(
             [BINARY_NAME, temp_pcap_path],
             stdout=subprocess.PIPE,
@@ -92,15 +94,13 @@ def analyze_pcap():
             text=True
         )
 
-        # Cleanup the temporary uploaded file from server block memory
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
 
         if engine_process.returncode != 0:
             print(f"[Core Engine Error Log]: {engine_process.stderr}")
-            return jsonify({"error": "Binary engine executed routine failure parameter loops"}), 500
+            return jsonify({"error": f"Binary engine execution failed: {engine_process.stderr}"}), 500
 
-        # Raw console intercept strings parsing into standard structural JSON nodes
         raw_output_payload = engine_process.stdout
         structured_telemetry = json.loads(raw_output_payload)
         
@@ -110,7 +110,6 @@ def analyze_pcap():
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
         return jsonify({"error": f"Internal orchestration fault: {str(e)}"}), 500
-
 # --- RUN ORCHESTRATION ---
 # --- RUN ORCHESTRATION ---
 if __name__ == '__main__':

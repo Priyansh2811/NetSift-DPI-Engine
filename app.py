@@ -12,11 +12,10 @@ CORS(app)
 IS_LINUX = platform.system() == "Linux"
 COMPILER = "g++" if IS_LINUX else "g++.exe"
 
-# Safe temporary storage environment paths for Linux/Windows
+# Safe memory buffer space for Linux/Windows structures
 BASE_DIR = "/tmp" if IS_LINUX else os.getcwd()
 BINARY_NAME = os.path.join(BASE_DIR, "dpi_engine" if IS_LINUX else "dpi_engine.exe")
 
-# --- CORE FILES MAPPING ---
 CPP_SOURCES = [
     "src/dpi_mt.cpp",
     "src/packet_parser.cpp",
@@ -27,27 +26,17 @@ CPP_SOURCES = [
 
 def compile_core_engine():
     """Compiles the C++ engine sequentially into the designated target directory"""
-    print(f"[Python Backend] Initializing verification and compilation of C++ Core Engine...")
-    
+    print("[Python Backend] Running sequential compilation flags...")
     if not os.path.exists("src"):
-        print("[Python Backend] Error: 'src' directory not found!")
-        return False, "'src' directory missing from repository context"
+        return False, "'src' folder framework missing"
 
-    # Command compilation setup
     compile_cmd = [COMPILER, "-std=c++17", "-pthread"] + CPP_SOURCES + ["-o", BINARY_NAME]
     
     try:
-        print(f"[Python Backend] Executing build command: {' '.join(compile_cmd)}")
-        result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
+        result = subprocess.run(compile_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=45)
         if result.returncode == 0:
-            print(f"[Python Backend] Verification complete! C++ Engine compiled at {BINARY_NAME}")
             return True, None
-        else:
-            error_log = f"Stdout: {result.stdout}\nStderr: {result.stderr}"
-            print(f"[Python Backend] Compilation Failed!\nLog Output:\n{error_log}")
-            return False, error_log
-            
+        return False, f"Compiler mismatch logs:\n{result.stderr}"
     except Exception as e:
         return False, str(e)
 
@@ -55,65 +44,70 @@ def compile_core_engine():
 
 @app.route('/', methods=['GET'])
 def health_check():
-    return jsonify({
-        "status": "online",
-        "platform_detected": platform.system(),
-        "binary_target_path": BINARY_NAME
-    }), 200
+    return jsonify({"status": "online", "platform": platform.system()}), 200
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_pcap():
+    # Safe validation wrapper to prevent unhandled routing crashes
     if 'file' not in request.files:
-        return jsonify({"error": "No file stream intercepted in payload metadata"}), 400
+        return jsonify({"error": "No file stream intercepted"}), 400
         
     uploaded_file = request.files['file']
     if uploaded_file.filename == '':
-        return jsonify({"error": "Null filename allocation detected"}), 400
+        return jsonify({"error": "Null filename allocation"}), 400
 
-    # Storing inside isolated absolute safe runtime directories
     temp_pcap_path = os.path.join(BASE_DIR, "runtime_target.pcap")
-    uploaded_file.save(temp_pcap_path)
+    try:
+        uploaded_file.save(temp_pcap_path)
+    except Exception as save_err:
+        return jsonify({"error": f"Storage system mapping error: {str(save_err)}"}), 500
 
-    # Dynamic run-time compiler invocation check
+    # Dynamic fallback check for binary maps
     if not os.path.exists(BINARY_NAME):
         success, compilation_error = compile_core_engine()
         if not success:
-            if os.path.exists(temp_pcap_path):
-                os.remove(temp_pcap_path)
-            # CRITICAL: Yeh error ab direct frontend par exact pipeline compilation trace phenkegi!
-            return jsonify({
-                "error": "C++ Compilation Fault on Server Node",
-                "details": compilation_error
-            }), 500
+            if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
+            return jsonify({"error": "C++ Backend Engine Compilation Fault", "details": compilation_error}), 500
 
-    # Ensure execution access privileges on Linux instance
     if IS_LINUX and os.path.exists(BINARY_NAME):
         os.chmod(BINARY_NAME, 0o755)
 
     try:
-        print(f"[Python Backend] Passing packet streams through sub-process layers...")
+        print("[Python Backend] Initiating C++ subprocess intercept...")
         engine_process = subprocess.run(
             [BINARY_NAME, temp_pcap_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            timeout=30 # Prevent long thread freeze loops
         )
 
         if os.path.exists(temp_pcap_path):
             os.remove(temp_pcap_path)
 
         if engine_process.returncode != 0:
+            # Captures standard out errors instead of killing server pipeline
             return jsonify({
-                "error": "Binary executable runtime segmentation fault",
-                "details": engine_process.stderr
+                "error": "C++ Engine runtime failure or structural parsing mismatch",
+                "details": engine_process.stderr or "Check if your C++ main loop output prints valid structural JSON strings."
             }), 500
 
-        return jsonify(json.loads(engine_process.stdout)), 200
+        # Safe parsing wrap to ensure no malformed outputs breaks Flask
+        try:
+            structured_telemetry = json.loads(engine_process.stdout)
+            return jsonify(structured_telemetry), 200
+        except Exception as json_err:
+            return jsonify({
+                "error": "C++ Engine output structure is not a valid JSON schema matrix",
+                "raw_output": engine_process.stdout
+            }), 500
 
+    except subprocess.TimeoutExpired:
+        if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
+        return jsonify({"error": "Execution routine timeout. Package processing took too long"}), 504
     except Exception as e:
-        if os.path.exists(temp_pcap_path):
-            os.remove(temp_pcap_path)
-        return jsonify({"error": f"Internal orchestration fault: {str(e)}"}), 500
+        if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
+        return jsonify({"error": f"Internal microservice fault: {str(e)}"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))

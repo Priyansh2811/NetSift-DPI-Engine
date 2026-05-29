@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const formData = new FormData();
         formData.append('file', file);
 
-        fetch('http://localhost:5000/api/analyze', {
+        fetch('https://netsift-dpi-engine.onrender.com/api/analyze', {
             method: 'POST',
             body: formData
         })

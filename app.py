@@ -8,7 +8,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Render par binary isi naam se root par generate hogi
+# Render targets Linux instances
 BINARY_NAME = "./dpi_engine" if platform.system() == "Linux" else "dpi_engine.exe"
 
 @app.route('/', methods=['GET'])
@@ -16,7 +16,7 @@ def health_check():
     return jsonify({
         "status": "online",
         "binary_exists": os.path.exists(BINARY_NAME),
-        "platform": platform.system()
+        "platform_detected": platform.system()
     }), 200
 
 @app.route('/api/analyze', methods=['POST'])
@@ -36,7 +36,7 @@ def analyze_pcap():
 
     if not os.path.exists(BINARY_NAME):
         if os.path.exists(temp_pcap_path): os.remove(temp_pcap_path)
-        return jsonify({"error": "C++ Engine Core Binary Missing from Server"}), 500
+        return jsonify({"error": "C++ Engine Core Binary Missing from Server Instance"}), 500
 
     try:
         engine_process = subprocess.run(
@@ -52,7 +52,7 @@ def analyze_pcap():
 
         if engine_process.returncode != 0:
             return jsonify({
-                "error": "C++ Engine runtime failure",
+                "error": "C++ Engine runtime execution fault",
                 "details": engine_process.stderr
             }), 500
 

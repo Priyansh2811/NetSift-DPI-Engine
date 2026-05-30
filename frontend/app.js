@@ -65,7 +65,21 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(data => {
             loading.classList.add('hidden');
-            cachedDomainsData = data.detectedDomains || []; // Safe backup array fallback
+            
+            // --- SMART DATA BINDING ENGINE ---
+            // Agar C++ layer ka actual output hai toh direct use karega, 
+            // warna infrastructure runtime failure ke fallback data ko cleanly map karega.
+            if (data.detectedDomains) {
+                cachedDomainsData = data.detectedDomains;
+            } else if (data.top_ips) {
+                cachedDomainsData = data.top_ips.map(item => ({
+                    domain: item.ip,
+                    protocol: `${item.count} Pkts (${formatBytes(item.bytes)})`
+                }));
+            } else {
+                cachedDomainsData = [];
+            }
+
             globalResponseBackup = data;
             exportBtn.classList.remove('hidden');    // Show Export Button
             renderDashboard(data);
@@ -80,24 +94,34 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderDashboard(data) {
         dashboardContent.classList.remove('hidden');
 
-        // Setup base parameters protection matrices
-        const metrics = data.metrics || { totalPackets: 0, totalBytes: 0, tcpPackets: 0, udpPackets: 0 };
-        const appBreakdown = data.appBreakdown || [];
+        // Setup base parameters matrix dynamically across C++ output or python fallbacks
+        const totalPackets = data.metrics?.totalPackets || data.summary?.total_packets || 0;
+        const totalBytes = data.metrics?.totalBytes || data.summary?.total_bytes || 0;
+        const tcpPackets = data.metrics?.tcpPackets || data.protocols?.TCP || 0;
+        const udpPackets = data.metrics?.udpPackets || data.protocols?.UDP || 0;
 
-        document.getElementById('stat-packets').innerText = metrics.totalPackets.toLocaleString();
-        document.getElementById('stat-bytes').innerText = formatBytes(metrics.totalBytes);
-        document.getElementById('stat-tcp').innerText = metrics.tcpPackets.toLocaleString();
-        document.getElementById('stat-udp').innerText = metrics.udpPackets.toLocaleString();
+        document.getElementById('stat-packets').innerText = totalPackets.toLocaleString();
+        document.getElementById('stat-bytes').innerText = formatBytes(totalBytes);
+        document.getElementById('stat-tcp').innerText = tcpPackets.toLocaleString();
+        document.getElementById('stat-udp').innerText = udpPackets.toLocaleString();
 
         // 1. Initial Populate Table
         updateTable(cachedDomainsData);
 
-        // 2. FEATURE 3: Bandwidth Timeline Line Graph (Dynamic Simulation based on package size)
-        renderTimelineChart(metrics.totalPackets);
+        // 2. Bandwidth Timeline Line Graph (Dynamic Simulation based on package size)
+        renderTimelineChart(totalPackets);
 
         // 3. Application Distribution Doughnut Chart render karna
-        const labels = appBreakdown.map(a => a.name);
-        const counts = appBreakdown.map(a => a.count);
+        let labels = [];
+        let counts = [];
+
+        if (data.appBreakdown && data.appBreakdown.length > 0) {
+            labels = data.appBreakdown.map(a => a.name);
+            counts = data.appBreakdown.map(a => a.count);
+        } else if (data.protocols) {
+            labels = Object.keys(data.protocols);
+            counts = Object.values(data.protocols);
+        }
 
         if (appChartInstance) appChartInstance.destroy();
 
@@ -126,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // FEATURE 2: Filter Table Core Logic
+    // Filter Table Core Logic
     function updateTable(filteredData) {
         const tableBody = document.getElementById('domain-table-body');
         tableBody.innerHTML = '';
@@ -159,14 +183,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const filtered = cachedDomainsData.filter(item => {
             const matchesSearch = item.domain.toLowerCase().includes(searchText);
-            const matchesProtocol = (selectedProtocol === 'ALL' || item.protocol === selectedProtocol);
+            // Protocol check is flexible to match standard strings or fallback tags inside brackets
+            const matchesProtocol = (selectedProtocol === 'ALL' || 
+                                     item.protocol.toUpperCase().includes(selectedProtocol));
             return matchesSearch && matchesProtocol;
         });
 
         updateTable(filtered);
     }
 
-    // FEATURE 3: Line Graph Processing Layout Engine
+    // Line Graph Processing Layout Engine
     function renderTimelineChart(totalPackets) {
         if (timelineChartInstance) timelineChartInstance.destroy();
 
@@ -209,28 +235,22 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // FEATURE 4 UPGRADE: Download Excel/CSV Structured Report Engine
+    // Download Excel/CSV Structured Report Engine
     exportBtn.addEventListener('click', () => {
         if (!cachedDomainsData || cachedDomainsData.length === 0) return;
 
-        // 1. CSV ke Headers define karo
         let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Detected Domain / Endpoint,Layer 7 Signature Protocol\n";
+        csvContent += "Detected Domain / Endpoint / Source,Layer 7 Signature Mapping / Network Volume\n";
 
-        // 2. Local cache memory se data ko row-by-row Excel format mein convert karo
         cachedDomainsData.forEach(item => {
-            // Agar domain mein comma ho toh safe string wrapping lagao
             const domainStr = item.domain.includes(',') ? `"${item.domain}"` : item.domain;
             const protocolStr = item.protocol.includes(',') ? `"${item.protocol}"` : item.protocol;
             csvContent += `${domainStr},${protocolStr}\n`;
         });
 
-        // 3. Browser download trigger execution
         const encodedUri = encodeURI(csvContent);
         const downloadAnchor = document.createElement('a');
         downloadAnchor.setAttribute("href", encodedUri);
-        
-        // File ka naam format set karo
         downloadAnchor.setAttribute("download", "NetSift_DPI_Analysis_Report.csv");
         document.body.appendChild(downloadAnchor);
         
